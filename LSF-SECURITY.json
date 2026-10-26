@@ -1,0 +1,67 @@
+{
+  "schemaVersion": "lsf.github-action.security-fork.v1",
+  "upstreamRepository": "actions/setup-go",
+  "upstreamRevision": "b7ad1dad31e06c5925ef5d2fc7ad053ef454303e",
+  "upstreamTag": "v7.0.0",
+  "runtime": "node24",
+  "nodeBuild": "24.19.0",
+  "dependencyOverrides": {
+    "brace-expansion@1": "1.1.21",
+    "brace-expansion@5": "5.0.12",
+    "fast-xml-parser@5": "5.11.2",
+    "undici@6": "6.29.1"
+  },
+  "productionPackages": 50,
+  "osvFindingCount": 0,
+  "validation": {
+    "name": "setup-go",
+    "node": "v24.19.0",
+    "calls": [
+      {
+        "stage": "lock",
+        "status": 0,
+        "signal": null
+      },
+      {
+        "stage": "install",
+        "status": 0,
+        "signal": null
+      },
+      {
+        "stage": "build",
+        "status": 0,
+        "signal": null
+      },
+      {
+        "stage": "test",
+        "status": 0,
+        "signal": null
+      }
+    ],
+    "status": 0
+  },
+  "upstreamTests": [
+    "Test Suites: 6 passed, 6 total",
+    "Tests:       122 passed, 122 total",
+    "Snapshots:   0 total",
+    "Time:        11.085 s"
+  ],
+  "bundles": {
+    "dist/cache-save/index.js": {
+      "bytes": 3429208,
+      "sha256": "a8e1e62f38ad0436092e251dcdd06f54337408bd9120b1ec0474400c003e8f33"
+    },
+    "dist/cache-save/package.json": {
+      "bytes": 23,
+      "sha256": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a"
+    },
+    "dist/setup/index.js": {
+      "bytes": 3628698,
+      "sha256": "dc35944eff509b31c68c601427dbbd46daeff94fdb308819b0bdd9963760ce97"
+    },
+    "dist/setup/package.json": {
+      "bytes": 23,
+      "sha256": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a"
+    }
+  }
+}
