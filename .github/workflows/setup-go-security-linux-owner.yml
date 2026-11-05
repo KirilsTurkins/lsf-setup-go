@@ -1,0 +1,184 @@
+name: Focused setup-go security owner
+
+on:
+  push:
+    branches:
+      - codex/setup-go-security-owner-20261105
+
+permissions:
+  contents: read
+
+jobs:
+  exact-source-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      REVIEWED_COMMIT: 390622e7ee1bf62f65e663253868c5d78d2d0f7d
+      REVIEWED_TREE: 586d487e144d8cf393893459b6678118d0b5dc92
+    steps:
+      - name: Check out the owner and reviewed parent
+        uses: KirilsTurkins/lsf-checkout@4d310727149d3abacc52b5dcb0a1c4d18b345d13
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Authenticate reviewed tree and owner boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          OWNER_EVIDENCE="$RUNNER_TEMP/setup-go-security-owner"
+          printf 'OWNER_EVIDENCE=%s\n' "$OWNER_EVIDENCE" >> "$GITHUB_ENV"
+          mkdir -p "$OWNER_EVIDENCE"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD^)" = "$REVIEWED_COMMIT"
+          test "$(git rev-parse "$REVIEWED_COMMIT^{tree}")" = "$REVIEWED_TREE"
+          test "$(git diff --name-only "$REVIEWED_COMMIT" HEAD)" = '.github/workflows/setup-go-security-linux-owner.yml'
+          test -z "$(git status --porcelain)"
+          sha256sum -c <<'SHA256'
+          435344c44656f7642f8a467c786c623e24ad22032df2a14f0835bd6673f44b93  package.json
+          058e6d5773b07dfa02e9fb15a46f6d101ee1d18d123b7d22aabecb3e991c5a4d  package-lock.json
+          7f48af95ce77cec176b4280338431d244eff2582e3fdcc7399108ec3ae6fb1ec  dist/setup/index.js
+          2788fcd2e048d57304f4a7f896468d1c5dbc0e983d6f41aad89e9422e8f7ecfb  dist/cache-save/index.js
+          c4ca0f4eb3a2464c026bc3dec5d9eaf04544aed24c3fd1d77da95f85e36c369f  .lsf-source/deepmerge-4.3.1-lsf-prototype-v1.tar
+          e402617d1e791c4bed35768b6c34ba68c370c076551495e738de0731ad2049c7  .lsf-source/deepmerge-4.3.1-lsf-prototype-v1.repair.json
+          8ed155c4f29d451728efaaf60bc0ed7249ceb93d21eb81171068342621287a68  .lsf-source/minimatch-10.2.5-lsf-bound-v1.tar
+          a6cea46915bfc6c3fae60f9bd003ea4f9d6a4233aa59a9ca729474d3824ca9e5  .lsf-source/minimatch-10.2.5.original.tgz
+          b340bb0502087bb0df18c8ec276ee61f58aedc6c54fcc6b022d174817d7d27a9  .lsf-source/minimatch-10.2.5-lsf-bound-v1.repair.json
+          SHA256
+      - name: Install exact Node version
+        uses: KirilsTurkins/lsf-setup-node@fdae00b14e855eb751452bc70c64dde286270415
+        with:
+          node-version: 24.19.0
+      - name: Install exact dependency graph
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(node --version)" = 'v24.19.0'
+          test "$(npm --version)" = '11.17.0'
+          node --version
+          npm --version
+          npm ci --no-audit --no-fund
+          git diff --exit-code "$REVIEWED_COMMIT" -- package.json package-lock.json .lsf-source
+          if ! npm ls --all > "$OWNER_EVIDENCE/npm-ls.txt" 2>&1; then
+            tail -n 80 "$OWNER_EVIDENCE/npm-ls.txt"
+            exit 1
+          fi
+          node .lsf-source/verify-installed-deepmerge.mjs
+          node .lsf-source/verify-installed-minimatch.mjs
+      - name: Reconstruct authenticated package repairs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64,hashlib,io,json,os,tarfile,urllib.request
+          from pathlib import Path
+          source=Path('.lsf-source'); report=[]
+          specs=[
+           {'name':'deepmerge','original':None,'url':'https://registry.npmjs.org/deepmerge/-/deepmerge-4.3.1.tgz','original_sha':'4003a0a348276a95543fa969f561f6b5968629acbbb59d66018dd23e7b8f1d5c','derived':'deepmerge-4.3.1-lsf-prototype-v1.tar','derived_sha':'c4ca0f4eb3a2464c026bc3dec5d9eaf04544aed24c3fd1d77da95f85e36c369f','recipe':'deepmerge-4.3.1-lsf-prototype-v1.repair.json','recipe_sha':'e402617d1e791c4bed35768b6c34ba68c370c076551495e738de0731ad2049c7','files':['index.js','dist/cjs.js','dist/umd.js']},
+           {'name':'minimatch','original':'minimatch-10.2.5.original.tgz','original_sha':'a6cea46915bfc6c3fae60f9bd003ea4f9d6a4233aa59a9ca729474d3824ca9e5','derived':'minimatch-10.2.5-lsf-bound-v1.tar','derived_sha':'8ed155c4f29d451728efaaf60bc0ed7249ceb93d21eb81171068342621287a68','recipe':'minimatch-10.2.5-lsf-bound-v1.repair.json','recipe_sha':'b340bb0502087bb0df18c8ec276ee61f58aedc6c54fcc6b022d174817d7d27a9','files':['dist/commonjs/index.js','dist/esm/index.js']}]
+          def members(raw,mode):
+              with tarfile.open(fileobj=io.BytesIO(raw),mode=mode) as tf:
+                  rows=[m for m in tf if m.isfile()]
+                  assert len({m.name for m in rows})==len(rows)
+                  assert all(m.name.startswith('package/') and '..' not in Path(m.name).parts for m in rows)
+                  return {m.name.removeprefix('package/'):tf.extractfile(m).read() for m in rows}
+          for x in specs:
+              if x['original'] is None:
+                  with urllib.request.urlopen(x['url'],timeout=30) as f:
+                      raw=f.read(1024*1024+1)
+                  assert len(raw)<=1024*1024
+              else:
+                  raw=(source/x['original']).read_bytes()
+              fixed=(source/x['derived']).read_bytes(); recipe=(source/x['recipe']).read_bytes()
+              assert hashlib.sha256(raw).hexdigest()==x['original_sha']
+              assert hashlib.sha256(fixed).hexdigest()==x['derived_sha']
+              assert hashlib.sha256(recipe).hexdigest()==x['recipe_sha']
+              data=json.loads(recipe); assert [f['path'] for f in data['files']]==x['files']
+              assert 'sha512-'+base64.b64encode(hashlib.sha512(raw).digest()).decode()==data['upstreamIntegrity']
+              old,new=members(raw,'r:gz'),members(fixed,'r:'); assert old.keys()==new.keys()
+              for row in data['files']:
+                  original=old[row['path']]; assert hashlib.sha256(original).hexdigest()==row['beforeSha256']
+                  text=original.decode('utf8')
+                  for edit in row['edits']:
+                      assert text.count(edit['before'])==edit['count']; text=text.replace(edit['before'],edit['after'])
+                  rebuilt=text.encode(); assert hashlib.sha256(rebuilt).hexdigest()==row['afterSha256'] and rebuilt==new[row['path']]
+                  old[row['path']]=rebuilt
+              assert old==new
+              report.append({'name':x['name'],'files':len(old),'repaired':x['files'],'original_sha256':x['original_sha'],'derived_sha256':x['derived_sha']})
+          Path(os.environ['OWNER_EVIDENCE'],'reconstruction.json').write_text(json.dumps(report,indent=2)+'\n')
+          print(json.dumps(report))
+          PY
+      - name: Check installed-source tamper refusals
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,os,shutil,subprocess,tempfile
+          from pathlib import Path
+          source=Path.cwd(); results=[]
+          with tempfile.TemporaryDirectory(prefix='lsf-dotnet-tamper-',dir=os.environ['RUNNER_TEMP']) as temp:
+              d=Path(temp)
+              for f in ('package.json','package-lock.json'): shutil.copyfile(source/f,d/f)
+              shutil.copytree(source/'.lsf-source',d/'.lsf-source'); (d/'node_modules').mkdir()
+              for name in ('deepmerge','minimatch'): shutil.copytree(source/'node_modules'/name,d/'node_modules'/name)
+              def run(name):
+                  return subprocess.run(['node',str(d/'.lsf-source'/('verify-installed-'+name+'.mjs'))],cwd=d,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode
+              assert run('deepmerge')==0 and run('minimatch')==0
+              cases=[('deepmerge','node_modules/deepmerge/index.js','bytes'),('deepmerge','node_modules/deepmerge/dist/cjs.js','bytes'),('deepmerge','node_modules/deepmerge/dist/umd.js','bytes'),('deepmerge','.lsf-source/deepmerge-4.3.1-lsf-prototype-v1.tar','bytes'),('deepmerge','.lsf-source/deepmerge-4.3.1-lsf-prototype-v1.repair.json','bytes'),('deepmerge','package.json','deep-manifest'),('deepmerge','package-lock.json','deep-lock'),('minimatch','node_modules/minimatch/dist/commonjs/index.js','bytes'),('minimatch','node_modules/minimatch/dist/esm/index.js','bytes'),('minimatch','.lsf-source/minimatch-10.2.5-lsf-bound-v1.tar','bytes'),('minimatch','.lsf-source/minimatch-10.2.5.original.tgz','bytes'),('minimatch','.lsf-source/minimatch-10.2.5-lsf-bound-v1.repair.json','bytes'),('minimatch','package.json','mini-manifest'),('minimatch','package-lock.json','mini-lock'),('minimatch','package-lock.json','mini-duplicate')]
+              for name,path,kind in cases:
+                  p=d/path; original=p.read_bytes()
+                  try:
+                      if kind=='bytes': changed=original+b'\n# tamper\n'
+                      else:
+                          data=json.loads(original)
+                          if kind=='deep-manifest': data['devDependencies']['deepmerge']='4.3.1'
+                          elif kind=='deep-lock': data['packages']['node_modules/deepmerge']['integrity']='sha512-bad'
+                          elif kind=='mini-manifest': data['overrides']['minimatch@10']='10.2.5'
+                          elif kind=='mini-lock': data['packages']['node_modules/minimatch']['integrity']='sha512-bad'
+                          elif kind=='mini-duplicate': data['packages']['node_modules/untrusted/node_modules/minimatch']={**data['packages']['node_modules/minimatch'],'resolved':'https://registry.npmjs.org/minimatch/-/minimatch-10.2.5.tgz'}
+                          changed=json.dumps(data).encode()
+                      p.write_bytes(changed); assert run(name)!=0,(name,path,kind); results.append({'verifier':name,'path':path,'change':kind,'refused':True})
+                  finally: p.write_bytes(original)
+              assert run('deepmerge')==0 and run('minimatch')==0 and len(results)==15
+          Path(os.environ['OWNER_EVIDENCE'],'tamper.json').write_text(json.dumps(results,indent=2)+'\n')
+          print('verified 15 independent source tamper refusals')
+          PY
+      - name: Rebuild and compare both checked-in bundles
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run build
+          git ls-tree -r --name-only "$REVIEWED_COMMIT" -- dist | LC_ALL=C sort > "$OWNER_EVIDENCE/dist-expected.txt"
+          find dist -type f -print | LC_ALL=C sort > "$OWNER_EVIDENCE/dist-actual.txt"
+          diff -u "$OWNER_EVIDENCE/dist-expected.txt" "$OWNER_EVIDENCE/dist-actual.txt"
+          git diff --exit-code "$REVIEWED_COMMIT" -- dist
+          sha256sum dist/setup/index.js dist/cache-save/index.js > "$OWNER_EVIDENCE/bundle-sha256.txt"
+          sha256sum -c <<'SHA256'
+          7f48af95ce77cec176b4280338431d244eff2582e3fdcc7399108ec3ae6fb1ec  dist/setup/index.js
+          2788fcd2e048d57304f4a7f896468d1c5dbc0e983d6f41aad89e9422e8f7ecfb  dist/cache-save/index.js
+          SHA256
+      - name: Run action tests, focused source controls and lint
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run test:security-source
+          npm test -- --json --outputFile="$OWNER_EVIDENCE/jest.json"
+          node - <<'NODE'
+          const fs = require('node:fs')
+          const assert = require('node:assert/strict')
+          const result = JSON.parse(fs.readFileSync(process.env.OWNER_EVIDENCE + '/jest.json', 'utf8'))
+          assert.equal(result.success, true)
+          assert.equal(result.numFailedTestSuites, 0)
+          assert.equal(result.numFailedTests, 0)
+          assert.ok(result.numPassedTestSuites > 0 && result.numPassedTests > 0)
+          console.log(JSON.stringify({suites: result.numPassedTestSuites, tests: result.numPassedTests, pending: result.numPendingTests}))
+          NODE
+          npm run lint
+          git diff --exit-code "$REVIEWED_COMMIT" -- package.json package-lock.json .lsf-source dist
+      - name: Retain bounded owner evidence
+        if: always()
+        uses: KirilsTurkins/lsf-upload-artifact@5c42799caf30eda69cb2db5da0be2400c47cef16
+        with:
+          name: setup-go-security-owner-${{ github.run_id }}
+          path: ${{ runner.temp }}/setup-go-security-owner
+          if-no-files-found: warn
+          retention-days: 7
