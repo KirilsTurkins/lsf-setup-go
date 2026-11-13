@@ -1,0 +1,13 @@
+name: LSF XML parser security update
+on:
+  push:
+    branches: [fix/fastxml-20261113]
+    paths: [.github/workflows/lsf-fastxml-refresh.yml]
+permissions:
+  contents: write
+jobs:
+  refresh:
+    uses: KirilsTurkins/latent-service-fabric/.github/workflows/ts-action-security-worker.yml@c414dd75c24ae38001b9ac6359328d9137d1eee9
+    with:
+      role: setup-go
+      base: 1020042799f722e9ef016bf63106367879587a49
